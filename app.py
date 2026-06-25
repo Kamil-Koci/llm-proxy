@@ -338,7 +338,12 @@ def make_handler(config: ProxyConfig) -> type[BaseHTTPRequestHandler]:
             self.send_json_response(HTTPStatus.OK, {"exchanges": exchanges})
 
         def handle_exchange_detail(self, path: str) -> None:
-            exchange_id = unquote(path.removeprefix("/_api/exchanges/"))
+            remainder = path.removeprefix("/_api/exchanges/")
+            raw_id, slash, fmt = remainder.partition("/")
+            exchange_id = unquote(raw_id)
+            if slash:
+                self.handle_exchange_file(exchange_id, fmt)
+                return
             exchange = load_exchange_detail(config.communication_logs_dir, exchange_id)
             if exchange is None:
                 self.send_json_response(
@@ -347,6 +352,28 @@ def make_handler(config: ProxyConfig) -> type[BaseHTTPRequestHandler]:
                 )
                 return
             self.send_json_response(HTTPStatus.OK, exchange)
+
+        def handle_exchange_file(self, exchange_id: str, fmt: str) -> None:
+            content_types = {
+                "log": "text/plain; charset=utf-8",
+                "json": "application/json; charset=utf-8",
+            }
+            if fmt not in content_types or not is_valid_exchange_id(exchange_id):
+                self.send_json_response(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "not_found", "message": "Exchange file not found."},
+                )
+                return
+            file_path = config.communication_logs_dir / f"{exchange_id}.{fmt}"
+            try:
+                data = file_path.read_bytes()
+            except OSError:
+                self.send_json_response(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "not_found", "message": "Exchange file not found."},
+                )
+                return
+            self.send_simple_response(HTTPStatus.OK, data, content_types[fmt])
 
         def send_json_response(self, status: HTTPStatus, payload: object) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -611,8 +638,16 @@ def exchange_summary(exchange: dict[str, object], path: Path) -> dict[str, objec
     }
 
 
+def is_valid_exchange_id(exchange_id: str) -> bool:
+    return (
+        bool(exchange_id)
+        and "/" not in exchange_id
+        and EXCHANGE_ID_PATTERN.match(exchange_id) is not None
+    )
+
+
 def load_exchange_detail(logs_dir: Path, exchange_id: str) -> dict[str, object] | None:
-    if not exchange_id or "/" in exchange_id or not EXCHANGE_ID_PATTERN.match(exchange_id):
+    if not is_valid_exchange_id(exchange_id):
         return None
     return read_exchange_json(logs_dir / f"{exchange_id}.json")
 
@@ -744,7 +779,7 @@ def dashboard_html() -> str:
 
     .exchange-row {
       display: grid;
-      grid-template-columns: 132px 56px 1fr 70px 82px;
+      grid-template-columns: 190px 56px 1fr 70px 82px;
       gap: 10px;
       width: 100%;
       border: 0;
@@ -1000,6 +1035,37 @@ def dashboard_html() -> str:
       font-size: 12px;
     }
 
+    .files {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .files-label {
+      overflow-wrap: anywhere;
+    }
+
+    .file-link {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .file-link:hover {
+      border-color: var(--accent);
+      background: #eef4ff;
+    }
+
     @media (max-width: 980px) {
       .layout {
         grid-template-columns: 1fr;
@@ -1222,6 +1288,20 @@ def dashboard_html() -> str:
       parent.append(item);
     }
 
+    function addFileLinks(parent, id) {
+      if (!id) return;
+      const bar = node("div", "files");
+      bar.append(node("span", "files-label", `File: ${id}`));
+      for (const fmt of ["log", "json"]) {
+        const link = node("a", "file-link", `.${fmt}`);
+        link.href = `/_api/exchanges/${encodeURIComponent(id)}/${fmt}`;
+        link.target = "_blank";
+        link.rel = "noopener";
+        bar.append(link);
+      }
+      parent.append(bar);
+    }
+
     function addHeaders(parent, title, headers) {
       const section = node("section", "section");
       section.append(node("h3", "", title));
@@ -1387,6 +1467,8 @@ def dashboard_html() -> str:
       addMeta(meta, "Target URL", exchange.target_url || "");
       addMeta(meta, "Bytes", `${exchange.request_bytes || 0} request / ${exchange.response_bytes || 0} response`);
       detail.append(meta);
+
+      addFileLinks(detail, exchange.id);
 
       addHeaders(detail, "Request Headers", exchange.request_headers);
       addBody(detail, "Request Body", exchange.request_body);

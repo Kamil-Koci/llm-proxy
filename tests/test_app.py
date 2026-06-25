@@ -5,6 +5,7 @@ import logging
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -310,6 +311,37 @@ class ProxyTests(unittest.TestCase):
 
             self.assertEqual(detail["id"], exchange["id"])
             self.assertEqual(detail["status"], 200)
+
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{proxy.server_port}/_api/exchanges/{exchange['id']}/log",
+                timeout=5,
+            ) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(
+                    response.headers.get("Content-Type"), "text/plain; charset=utf-8"
+                )
+                log_body = response.read().decode("utf-8")
+            self.assertIn("=== REQUEST ===", log_body)
+            self.assertEqual(log_body, log_files[0].read_text(encoding="utf-8"))
+
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{proxy.server_port}/_api/exchanges/{exchange['id']}/json",
+                timeout=5,
+            ) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(
+                    response.headers.get("Content-Type"),
+                    "application/json; charset=utf-8",
+                )
+                raw_json = response.read().decode("utf-8")
+            self.assertEqual(raw_json, json_files[0].read_text(encoding="utf-8"))
+
+            missing = urllib.request.Request(
+                f"http://127.0.0.1:{proxy.server_port}/_api/exchanges/{exchange['id']}/txt"
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(missing, timeout=5)
+            self.assertEqual(ctx.exception.code, 404)
 
             proxy.shutdown()
             proxy.server_close()

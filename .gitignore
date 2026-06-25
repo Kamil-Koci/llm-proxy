@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+logs/*
+!logs/.gitkeep
+communication_logs/*
+!communication_logs/.gitkeep
+
+# Local config (not committed) — see config.example.toml
+config.toml
+
+# Editor swap/backup files
+*.swp
+*.swo
+*.kate-swp
+*~

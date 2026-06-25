@@ -1,0 +1,25 @@
+# Example configuration for llm-proxy.
+#
+# Copy this file to config.toml and adjust the values:
+#
+#     cp config.example.toml config.toml
+#
+# config.toml is git-ignored, so local values (for example an internal
+# upstream hostname) are never committed.
+#
+# Precedence: command-line options > config.toml > built-in defaults.
+
+# Address the proxy listens on, as "host:port" or just "port".
+listen = "localhost:8081"
+
+# Upstream LLM endpoint base URL (OpenAI-compatible).
+target_url = "http://localhost:3000/v1"
+
+# Directory for application runtime logs.
+app_logs_dir = "logs"
+
+# Directory for request/response communication logs.
+communication_logs_dir = "communication_logs"
+
+# Upstream request timeout in seconds.
+timeout = 120.0
